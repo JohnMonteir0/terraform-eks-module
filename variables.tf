@@ -136,7 +136,10 @@ variable "outpost_config" {
 
 variable "cluster_encryption_config" {
   description = "EKS encryption configuration. Use {} to disable encryption."
-  type = map(any)
+  type = object({
+    resources        = optional(list(string))
+    provider_key_arn = optional(string)
+  })
   default = {}
 }
 
