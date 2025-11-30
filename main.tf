@@ -110,10 +110,10 @@ resource "aws_eks_cluster" "this" {
       provider {
         key_arn = var.create_kms_key ? module.kms.key_arn : lookup(encryption_config.value, "provider_key_arn", null)
       }
-
       resources = lookup(encryption_config.value, "resources", [])
     }
   }
+
 
 
   dynamic "remote_network_config" {
