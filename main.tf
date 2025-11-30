@@ -22,11 +22,11 @@ locals {
 
   cluster_role = try(aws_iam_role.this[0].arn, var.iam_role_arn)
 
-  create_outposts_local_cluster    = length(var.outpost_config) > 0
+  create_outposts_local_cluster = length(var.outpost_config) > 0
   enable_cluster_encryption_config = (
-  !local.create_outposts_local_cluster &&
-  lookup(var.cluster_encryption_config, "resources", null) != null
-)
+    !local.create_outposts_local_cluster &&
+    lookup(var.cluster_encryption_config, "resources", null) != null
+  )
 
 
   auto_mode_enabled = try(var.cluster_compute_config.enabled, false)
@@ -104,16 +104,16 @@ resource "aws_eks_cluster" "this" {
   }
 
   dynamic "encryption_config" {
-  for_each = local.enable_cluster_encryption_config ? [var.cluster_encryption_config] : []
+    for_each = local.enable_cluster_encryption_config ? [var.cluster_encryption_config] : []
 
-  content {
-    provider {
-      key_arn = var.create_kms_key ? module.kms.key_arn : lookup(encryption_config.value, "provider_key_arn", null)
+    content {
+      provider {
+        key_arn = var.create_kms_key ? module.kms.key_arn : lookup(encryption_config.value, "provider_key_arn", null)
+      }
+
+      resources = lookup(encryption_config.value, "resources", [])
     }
-
-    resources = lookup(encryption_config.value, "resources", [])
   }
-}
 
 
   dynamic "remote_network_config" {
@@ -314,7 +314,6 @@ module "kms" {
     local.enable_cluster_encryption_config
   )
 
-  # KMS key settings (applies only when create=true)
   description             = coalesce(var.kms_key_description, "${var.cluster_name} cluster encryption key")
   key_usage               = "ENCRYPT_DECRYPT"
   deletion_window_in_days = var.kms_key_deletion_window_in_days
@@ -329,8 +328,10 @@ module "kms" {
   source_policy_documents   = var.kms_key_source_policy_documents
   override_policy_documents = var.kms_key_override_policy_documents
 
-  # Fix: aliases MUST be empty when using external key
-  aliases          = var.create_kms_key ? var.kms_key_aliases : {}
+  # FIX: return [] instead of {} because the type is list(object)
+  aliases = var.create_kms_key ? var.kms_key_aliases : []
+
+  # FIX: returning {} is correct because computed_aliases is a map
   computed_aliases = var.create_kms_key ? {
     cluster = { name = "eks/${var.cluster_name}" }
   } : {}
@@ -340,7 +341,6 @@ module "kms" {
     var.tags,
   )
 }
-
 
 ################################################################################
 # Cluster Security Group
