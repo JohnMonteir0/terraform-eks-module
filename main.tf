@@ -22,8 +22,12 @@ locals {
 
   cluster_role = try(aws_iam_role.this[0].arn, var.iam_role_arn)
 
-  create_outposts_local_cluster    = length(var.outpost_config) > 0
-  enable_cluster_encryption_config = length(var.cluster_encryption_config) > 0 && !local.create_outposts_local_cluster
+  create_outposts_local_cluster = length(var.outpost_config) > 0
+  enable_cluster_encryption_config = (
+    !local.create_outposts_local_cluster &&
+    lookup(var.cluster_encryption_config, "resources", null) != null
+  )
+
 
   auto_mode_enabled = try(var.cluster_compute_config.enabled, false)
 }
@@ -100,16 +104,17 @@ resource "aws_eks_cluster" "this" {
   }
 
   dynamic "encryption_config" {
-    # Not available on Outposts
     for_each = local.enable_cluster_encryption_config ? [var.cluster_encryption_config] : []
 
     content {
       provider {
-        key_arn = var.create_kms_key ? module.kms.key_arn : encryption_config.value.provider_key_arn
+        key_arn = var.create_kms_key ? module.kms.key_arn : lookup(encryption_config.value, "provider_key_arn", null)
       }
-      resources = encryption_config.value.resources
+      resources = lookup(encryption_config.value, "resources", [])
     }
   }
+
+
 
   dynamic "remote_network_config" {
     # Not valid on Outposts
@@ -301,16 +306,20 @@ resource "aws_eks_access_policy_association" "this" {
 
 module "kms" {
   source  = "terraform-aws-modules/kms/aws"
-  version = "2.1.0" # Note - be mindful of Terraform/provider version compatibility between modules
+  version = "2.1.0"
 
-  create = local.create && var.create_kms_key && local.enable_cluster_encryption_config # not valid on Outposts
+  create = (
+    local.create &&
+    var.create_kms_key &&
+    local.enable_cluster_encryption_config
+  )
 
   description             = coalesce(var.kms_key_description, "${var.cluster_name} cluster encryption key")
   key_usage               = "ENCRYPT_DECRYPT"
   deletion_window_in_days = var.kms_key_deletion_window_in_days
   enable_key_rotation     = var.enable_kms_key_rotation
 
-  # Policy
+  # Policies (only used if the key is being created)
   enable_default_policy     = var.kms_key_enable_default_policy
   key_owners                = var.kms_key_owners
   key_administrators        = coalescelist(var.kms_key_administrators, [try(data.aws_iam_session_context.current[0].issuer_arn, "")])
@@ -319,12 +328,13 @@ module "kms" {
   source_policy_documents   = var.kms_key_source_policy_documents
   override_policy_documents = var.kms_key_override_policy_documents
 
-  # Aliases
-  aliases = var.kms_key_aliases
-  computed_aliases = {
-    # Computed since users can pass in computed values for cluster name such as random provider resources
+  # FIX: return [] instead of {} because the type is list(object)
+  aliases = var.create_kms_key ? var.kms_key_aliases : []
+
+  # FIX: returning {} is correct because computed_aliases is a map
+  computed_aliases = var.create_kms_key ? {
     cluster = { name = "eks/${var.cluster_name}" }
-  }
+  } : {}
 
   tags = merge(
     { terraform-aws-modules = "eks" },
@@ -556,7 +566,8 @@ resource "aws_iam_policy" "cluster_encryption" {
           "kms:DescribeKey",
         ]
         Effect   = "Allow"
-        Resource = var.create_kms_key ? module.kms.key_arn : var.cluster_encryption_config.provider_key_arn
+        Resource = var.create_kms_key ? module.kms.key_arn : lookup(var.cluster_encryption_config, "provider_key_arn", null)
+
       },
     ]
   })

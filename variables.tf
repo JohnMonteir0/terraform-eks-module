@@ -135,11 +135,12 @@ variable "outpost_config" {
 }
 
 variable "cluster_encryption_config" {
-  description = "Configuration block with encryption configuration for the cluster. To disable secret encryption, set this value to `{}`"
-  type        = any
-  default = {
-    resources = ["secrets"]
-  }
+  description = "EKS encryption configuration. Use {} to disable encryption."
+  type = object({
+    resources        = optional(list(string))
+    provider_key_arn = optional(string)
+  })
+  default = {}
 }
 
 variable "attach_cluster_encryption_policy" {
